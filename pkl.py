@@ -1,4 +1,6 @@
 import numpy as np
-with open('test.pkl','rb') as f:
-    data = np.load(f, allow_pickle=True)
-    print(data)
+import pickle
+with open('c.pkl','rb') as f:
+    # data = np.load(f, allow_pickle=True)
+    data = pickle.load(f)
+    print(data[0])
