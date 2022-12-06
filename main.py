@@ -35,7 +35,7 @@ with mp_hands.Hands(
       
       for i in (results.multi_hand_landmarks[0].landmark):
         frame.append([i.x, i.y, i.z])
-        # # of frames x 21 landmarks x 3 properties (N, 21, 3)
+        # num of frames x 21 landmarks x 3 properties (N, 21, 3)
       frame = np.array(frame)
       data.append(frame)
 
@@ -46,11 +46,12 @@ with mp_hands.Hands(
             mp_hands.HAND_CONNECTIONS,
             mp_drawing_styles.get_default_hand_landmarks_style(),
             mp_drawing_styles.get_default_hand_connections_style())
-      cv2.imwrite(f'videoframe/new{cnt}.png', image)
+      # cv2.imwrite(f'videoframe/new{cnt}.png', image)
       # out.write(image)
       cnt += 1
   outputfile = filename[5:-3] + "pkl"
+  # data/(video_name).mp4 --> (video_name).pkl
   with open(outputfile,'wb') as f:
-    pickle.dump(np.array(data), f)
+    # data.shape == (N, 21, 3)
+    pickle.dump(np.array(data)[30:-30], f)
 cap.release()
-

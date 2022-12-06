@@ -3,4 +3,4 @@ import pickle
 with open('c.pkl','rb') as f:
     # data = np.load(f, allow_pickle=True)
     data = pickle.load(f)
-    print(data[0])
+    print(data.shape)
