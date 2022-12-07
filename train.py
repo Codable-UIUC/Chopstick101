@@ -3,50 +3,181 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from keras import layers
+import os
+from typing import Optional
 
-def get_frames(filename: str) -> np.ndarray:
-  
-  # get image frames
+def get_data(filepath: str) -> np.ndarray:
+    """
+    Get data(image frames) of chosen video
 
-  # return:
-  #   frames: np.ndarray (90, 21, 3)
-  data = []
-  with open(filename,'rb') as f:
-    data = pickle.load(f)
-  return data[:90,:]
+    Parameters
+    ----------
+    filename : str; name of file to open
 
-# for every frame --> (21, 3)
-# (90, 21, 3)
-def model_fn(timesteps: int = 3) -> tf.keras.Model:
-  batch_size = 8
-  frames = timesteps*30
-  data_dim = (21,3)
+    Returns
+    -------
+    frames : np.ndarray, (90, 21, 3)
+    """
+    with open(filepath,'rb') as f:
+        data = pickle.load(f)
+    return data
 
-# expected input data shape: (batch_size, timesteps, data_dim)
-  model = keras.Sequential()
-  # decrease neuron number accordingly
-  model.add(layers.LSTM(units = 128, return_sequences = True, input_shape = (frames, data_dim)))
-  #model.add(Dropout(0.3))
-  model.add(layers.LSTM(128), return_sequences = True)
-  #model.add(Dropout(0.3))
-  model.add(layers.Flatten())
-  # sigmoid or relu would be function for dense layer
-  model.add(layers.Dense(128, activation='relu'))
-  # classification layer - sigmoid (0 : bad, 1 : good)
-  model.add(layers.Dense(1, activation='sigmoid'))
-  #
-  return model
+def get_valid_data(filepath: str) -> Optional[np.ndarray]:
+    """
+    Confirms validity of the chosen data, and return only valid data
+    The data is valid only if it has ndarray with shape of (90, 21*3)
 
-model = model_fn()
-model.summary()
+    Parameters
+    ----------
+    filepath: str; path to file
 
-model.compile(optimizer='adam',
-              loss='binary_crossentropy',
-              metrics=['accuracy'])
+    Returns
+    -------
+    valid_data: ndarray[Optional]; ndarray(90, 63) if valid, None otherwise
+    """
+    data = get_data(filepath)
+    if data.shape == (90, 21*3):
+        return data
+    else:
+        return None
 
-model.fit(X_train, Y_train, epochs= 2, batch_size = 32,
-                    validation_data=(X_val, Y_val),
-                    callbacks=[checkpoint_cb])
+def get_dataset() -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generate full dataset in a single ndarray from stored data.
 
-scores = model.evaluate(X_test, y_test, verbose=0)
-print("Accuracy: %.2f%%" % (scores[1]*100))
+    Returns
+    -------
+    dataset: ndarray(N,90,63); all data in one ndarray with N being number of samples
+    results: ndarray(N); correct labels of each data, where 1 is True and 0 is false
+    """
+    dataset = []
+    results = []
+
+    path_frame_true = r".\input_data\Frames\True"
+    path_frame_false = r".\input_data\Frames\False"
+    paths = (path_frame_true, path_frame_false)
+    for path_frame in paths:
+        iter = os.scandir(path=path_frame)          # iterates through all files in the path
+        for file in iter:
+            filename = file.name
+            filepath = path_frame + '\\' + filename
+
+            data = get_valid_data(filepath)
+            if data is None:                        # confirms if data.shape == (90, 21*3)
+                continue
+            else:
+                dataset.append(data)
+                if 'true' in filename:
+                    results.append(np.ones(1))
+                else:
+                    results.append(np.zeros(1))
+    
+    dataset = np.array(dataset)
+    results = np.array(results)
+    return dataset, results
+
+def get_model() -> tf.keras.Model:
+    """
+    Generate model to train. Consist of multiple layers.
+    LSTM -> LSTM -> Flatten -> Dense -> Dense
+    Constraint: data is prepared for data with ...
+    batch_size(# of samples): N, time_steps: 90 frames, input_dim: 21*3
+
+    Returns
+    -------
+    model: tf.keras.Model; Machine learning model to train
+    """
+    num_frames = 90                     # each video are taken for 90 frames
+    num_landmarks = 21
+    num_dim = 3
+    num_data = num_landmarks * num_dim
+
+    # expected input data shape: ([batch_size, ]timesteps, data_dim) -> ([num_video, ]frames, 21*3)
+    model = keras.Sequential()
+    # decrease neuron number accordingly
+    model.add(layers.LSTM(units = 128, return_sequences = True, input_shape = (num_frames, num_data)))
+    #model.add(Dropout(0.3))
+    model.add(layers.LSTM(units = 128))
+    #model.add(Dropout(0.3))
+    model.add(layers.Flatten())
+    # sigmoid or relu would be function for dense layer
+    model.add(layers.Dense(128, activation='relu'))
+    # classification layer - sigmoid (0 : bad, 1 : good)
+    model.add(layers.Dense(1, activation='sigmoid'))
+
+    return model
+
+def set_model(epochs: int = 2) -> tf.keras.Model:
+    """
+    Generate model and save it to directory. Also returns the model.
+
+    Parameters
+    ----------
+    epochs: int[Optional]; epochs for model fit process. Default is 2
+
+    Returns
+    -------
+    model: tf.keras.Model
+    """
+    X_train, Y_train = get_dataset()
+
+    model = get_model()
+    model.summary()
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    model.fit(x = X_train, y = Y_train, batch_size = len(X_train), epochs= epochs)
+
+    model.save('./model')
+    return model
+
+def test_model(model: tf.keras.Model, filepath: str, y_test: int) -> None:
+    """
+    Perform test on the model.
+
+    Parameters
+    ----------
+    model: tf.keras.Model; Model to test on
+    filepath: str; path to file to run test
+    y_test: int; correct label to the file
+    """
+    # model = tf.keras.models.load_model('./model')
+    X_test = get_valid_data(filepath)
+    if X_test is None:
+        print("file is invalid")
+        return
+    
+    X_test = X_test[np.newaxis,:]
+    scores = model.evaluate(X_test, y_test, verbose=1)
+    print('Test loss:', scores[0])
+    print("Test accuracy: %.2f%%" % (scores[1]*100))
+
+if __name__ == '__main__':
+    ### new module ###
+    model = set_model(epochs=5)
+    ### loaded module ###
+    # model = tf.keras.models.load_model('./model')
+
+    path_frame_true = r".\input_data\Frames\True"
+    path_frame_false = r".\input_data\Frames\False"
+    
+    ### repeated input test ###
+    while True:
+        filename = input("Which file should I test: ")
+        if 'true' in filename:
+            filepath = path_frame_true + "\\" + filename.split('.')[0] + '.pkl'
+            label = np.ones(1)
+        elif 'false' in filename:
+            filepath = path_frame_false + "\\" + filename.split('.')[0] + '.pkl'
+            label = np.zeros(1)
+        elif filename == "done":
+            break
+        else:
+            print("The filename does not exist. Please try again.")
+
+        if not os.path.exists(filepath):
+            print("The filename does not exist. Please try again.")
+        
+        test_model(model, filepath, label)
+    ### single input test ###
+    # filepath = path_frame_true + "\\true (5).pkl"
+    # label = np.ones((1,))
+    # test_model(model, filepath, label)
