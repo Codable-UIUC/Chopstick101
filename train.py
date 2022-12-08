@@ -5,7 +5,6 @@ from tensorflow import keras
 from keras import layers
 import os
 from typing import Optional
-
 def get_data(filepath: str) -> np.ndarray:
     """
     Get data(image frames) of chosen video
@@ -107,13 +106,14 @@ def get_model() -> tf.keras.Model:
 
     return model
 
-def set_model(epochs: int = 2) -> tf.keras.Model:
+def set_model(epochs: int = 2, isSaved: bool = False) -> tf.keras.Model:
     """
     Generate model and save it to directory. Also returns the model.
 
     Parameters
     ----------
     epochs: int[Optional]; epochs for model fit process. Default is 2
+    isSaved: bool; if true, saves the model
 
     Returns
     -------
@@ -126,58 +126,73 @@ def set_model(epochs: int = 2) -> tf.keras.Model:
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     model.fit(x = X_train, y = Y_train, batch_size = len(X_train), epochs= epochs)
 
-    model.save('./model')
+    if isSaved:
+        model.save('./model')
     return model
 
-def test_model(model: tf.keras.Model, filepath: str, y_test: int) -> None:
+def test_model(model: tf.keras.Model, X_test: np.ndarray, y_test: np.ndarray) -> int:
     """
-    Perform test on the model.
+    Perform tests on the model.
 
     Parameters
     ----------
     model: tf.keras.Model; Model to test on
-    filepath: str; path to file to run test
-    y_test: int; correct label to the file
+    X_test: ndarray(N, 90, 21*3); test dataset
+    y_test: ndarray(N, 1); test labels
+
+    Returns
+    -------
+    accuracy: double; accuracy of the model in percentage, rounded at 100th digit
     """
     # model = tf.keras.models.load_model('./model')
-    X_test = get_valid_data(filepath)
-    if X_test is None:
-        print("file is invalid")
-        return
-    
-    X_test = X_test[np.newaxis,:]
+    X_test.reshape(-1, 90, 21*3)
+    y_test.reshape(-1, 1)
     scores = model.evaluate(X_test, y_test, verbose=1)
     print('Test loss:', scores[0])
     print("Test accuracy: %.2f%%" % (scores[1]*100))
+    return round(scores[1]*100, 2)
 
 if __name__ == '__main__':
-    ### new module ###
-    model = set_model(epochs=5)
-    ### loaded module ###
-    # model = tf.keras.models.load_model('./model')
+    """
+    Repeat the process for {cnt} times.
+    Find accuracy of the model with given train_set and test_set at different epochs(1~50).
+    Stored in pkl file as ndarray(2,50)
+    """
+    for cnt in range(7):
+        results = [range(1, 51), []]
+        for epoch in range(1, 51):
+            ### new module ###
+            model = set_model(epochs=epoch, isSaved=False)
+            ### loaded module ###
+            # model = tf.keras.models.load_model('./model')
 
-    path_frame_true = r".\input_data\Frames\True"
-    path_frame_false = r".\input_data\Frames\False"
+            path_frame_true = r".\test_set\True"
+            path_frame_false = r".\test_set\False"
+            paths = (path_frame_true, path_frame_false)
+
+            ##### automatic test_set test #####
+            test_set = []
+            test_label = []
+            for path_frame in paths:
+                iter = os.scandir(path=path_frame)          # iterates through all files in the path
+                for file in iter:
+                    filename = file.name
+                    filepath = path_frame + '\\' + filename
+
+                    data = get_valid_data(filepath)
+                    if data is None:                        # confirms if data.shape == (90, 21*3)
+                        continue
+                    else:
+                        test_set.append(data)
+                        if 'true' in filename:
+                            test_label.append(np.ones(1))
+                        else:
+                            test_label.append(np.zeros(1))
+            
+            test_set = np.array(test_set)
+            test_label = np.array(test_label)
+            acc = test_model(model, test_set, test_label)
+            results[1].append(acc)
     
-    ### repeated input test ###
-    while True:
-        filename = input("Which file should I test: ")
-        if 'true' in filename:
-            filepath = path_frame_true + "\\" + filename.split('.')[0] + '.pkl'
-            label = np.ones(1)
-        elif 'false' in filename:
-            filepath = path_frame_false + "\\" + filename.split('.')[0] + '.pkl'
-            label = np.zeros(1)
-        elif filename == "done":
-            break
-        else:
-            print("The filename does not exist. Please try again.")
-
-        if not os.path.exists(filepath):
-            print("The filename does not exist. Please try again.")
-        
-        test_model(model, filepath, label)
-    ### single input test ###
-    # filepath = path_frame_true + "\\true (5).pkl"
-    # label = np.ones((1,))
-    # test_model(model, filepath, label)
+        with open(f'./statistics/accuracy_{cnt}','wb') as f:
+            pickle.dump(np.array(results), f)
